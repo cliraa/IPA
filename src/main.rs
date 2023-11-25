@@ -134,32 +134,32 @@ fn verify(a: &mut Vec<U384FPElement>, b: &mut Vec<U384FPElement>, g: &mut Vec<U3
     if a.len() == 2 {
         verify_n_2(a, b, g, h, u, x)
     } else {
-    let mut k = computek(a);
-    while k > 1 {
-        let a_lo = vec_low(a);
-        let a_hi = vec_hi(a);
-        let b_lo = vec_low(b);
-        let b_hi = vec_hi(b);
-        let g_lo = vec_low(g);
-        let g_hi = vec_hi(g);
-        let h_lo = vec_low(h);
-        let h_hi = vec_hi(h);
-        
-        let L = inner_product(&a_lo, &g_hi) + inner_product(&b_hi, &h_lo) + inner_product(&a_lo, &b_hi) * u.clone();
-        let R = inner_product(&a_hi, &g_lo) + inner_product(&b_lo, &h_hi) + inner_product(&a_hi, &b_lo) * u.clone();
+        let mut k = computek(a);
+        while k > 1 {
+            let a_lo = vec_low(a);
+            let a_hi = vec_hi(a);
+            let b_lo = vec_low(b);
+            let b_hi = vec_hi(b);
+            let g_lo = vec_low(g);
+            let g_hi = vec_hi(g);
+            let h_lo = vec_low(h);
+            let h_hi = vec_hi(h);
+            
+            let L = inner_product(&a_lo, &g_hi) + inner_product(&b_hi, &h_lo) + inner_product(&a_lo, &b_hi) * u.clone();
+            let R = inner_product(&a_hi, &g_lo) + inner_product(&b_lo, &h_hi) + inner_product(&a_hi, &b_lo) * u.clone();
 
-        let a_prime = vector_addition(&multiply_vector(&a_lo, x.clone()), &multiply_vector(&a_hi, mod_inverse(x.clone())));
-        let b_prime = vector_addition(&multiply_vector(&b_lo, mod_inverse(x.clone())),&multiply_vector(&b_hi, x.clone()));
-        let g_prime = vector_addition(&multiply_vector(&g_lo, mod_inverse(x.clone())),&multiply_vector(&g_hi, x.clone()));
-        let h_prime = vector_addition(&multiply_vector(&h_lo, x.clone()),&multiply_vector(&h_hi, mod_inverse(x.clone())));
-        
-        *a = a_prime;
-        *b = b_prime;
-        *g = g_prime;
-        *h = h_prime;
-        k -= 1;
-    }
-    verify_n_2(a, b, g, h, u, x)
+            let a_prime = vector_addition(&multiply_vector(&a_lo, x.clone()), &multiply_vector(&a_hi, mod_inverse(x.clone())));
+            let b_prime = vector_addition(&multiply_vector(&b_lo, mod_inverse(x.clone())),&multiply_vector(&b_hi, x.clone()));
+            let g_prime = vector_addition(&multiply_vector(&g_lo, mod_inverse(x.clone())),&multiply_vector(&g_hi, x.clone()));
+            let h_prime = vector_addition(&multiply_vector(&h_lo, x.clone()),&multiply_vector(&h_hi, mod_inverse(x.clone())));
+            
+            *a = a_prime;
+            *b = b_prime;
+            *g = g_prime;
+            *h = h_prime;
+            k -= 1;
+        }
+        verify_n_2(a, b, g, h, u, x)
     }
 }
 
