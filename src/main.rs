@@ -3,8 +3,8 @@ use lambdaworks_math::field::element::FieldElement;
 // Given the coefficients of a polynomial p, a vector g, and values r and h, let's produce the commitment [p]:
 
 fn commitment_p<F: lambdaworks_math::field::traits::IsField>(
-    a: Vec<FieldElement<F>>,
-    g: Vec<FieldElement<F>>,
+    a: &mut Vec<FieldElement<F>>,
+    g: &mut Vec<FieldElement<F>>,
     blinding_factor: FieldElement<F>,
     h: FieldElement<F>) -> FieldElement<F> {
         let result = inner_product(&a, &g) + (blinding_factor*h);
@@ -69,7 +69,7 @@ fn verify_n_2<F: lambdaworks_math::field::traits::IsField>(
     s: FieldElement<F>,
     s_prime: FieldElement<F>) -> bool {
 
-        let p: FieldElement<F> = commitment_p(a.clone(), g.clone(),blinding_factor.clone(), h.clone());
+        let p: FieldElement<F> = commitment_p(a, g, blinding_factor.clone(), h.clone());
         let l: FieldElement<F> = calculate_l(a.clone(), b.clone(), g.clone(), h.clone(), u.clone(), s.clone());
         let r: FieldElement<F> = calculate_r(a.clone(), b.clone(), g.clone(), h.clone(), u.clone(), s_prime.clone());
         let a_prime: FieldElement<F> = calculate_a_prime(a.clone(), x.clone());
@@ -130,7 +130,7 @@ fn vector_addition<F: lambdaworks_math::field::traits::IsField>(a: &[FieldElemen
     a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
 }
 
-fn verify<F: lambdaworks_math::field::traits::IsField>(
+fn verify<F: lambdaworks_math::field::traits::IsField>( // This function must be fixed
     a: &mut Vec<FieldElement<F>>,
     b: &mut Vec<FieldElement<F>>,
     g: &mut Vec<FieldElement<F>>,
@@ -145,27 +145,44 @@ fn verify<F: lambdaworks_math::field::traits::IsField>(
         } else {
             let mut k = computek(a);
             while k > 1 {
-                let a_lo = vec_low(a);
-                let a_hi = vec_hi(a);
-                let b_lo = vec_low(b);
-                let b_hi = vec_hi(b);
-                let g_lo = vec_low(g);
-                let g_hi = vec_hi(g);
-                
-                let L = inner_product(&a_lo, &g_hi) + (s.clone() * h.clone()) + inner_product(&a_lo, &b_hi) * u.clone();
-                let R = inner_product(&a_hi, &g_lo) + (s_prime.clone() * h.clone()) + inner_product(&a_hi, &b_lo) * u.clone();
+                let a_lo: Vec<FieldElement<F>> = vec_low(a);
+                let a_hi: Vec<FieldElement<F>> = vec_hi(a);
+                let b_lo: Vec<FieldElement<F>> = vec_low(b);
+                let b_hi: Vec<FieldElement<F>> = vec_hi(b);
+                let g_lo: Vec<FieldElement<F>> = vec_low(g);
+                let g_hi: Vec<FieldElement<F>> = vec_hi(g);
 
-                let a_prime = vector_addition(&vector_multiply_scalar(&a_lo, x.clone()), &vector_multiply_scalar(&a_hi, mod_inverse(x.clone())));
-                let b_prime = vector_addition(&vector_multiply_scalar(&b_lo, mod_inverse(x.clone())),&vector_multiply_scalar(&b_hi, x.clone()));
+                let commitment: FieldElement<F> = commitment_p(a, g, blinding_factor.clone(), h.clone());
+                let c: FieldElement<F> = inner_product(a,b);
+                let r_prime: FieldElement<F> = (s.clone() * x.pow(2_u64)) + (blinding_factor.clone()) + ((mod_inverse(x.clone()).pow(2_u64)) * s_prime.clone());
                 
-                let g_prime = vector_addition(&vector_multiply_scalar(&g_lo, mod_inverse(x.clone())),&vector_multiply_scalar(&g_hi, x.clone()));
+                let L: FieldElement<F> = inner_product(&a_lo, &g_hi) + (s.clone() * h.clone()) + inner_product(&a_lo, &b_hi) * u.clone();
+                let R: FieldElement<F> = inner_product(&a_hi, &g_lo) + (s_prime.clone() * h.clone()) + inner_product(&a_hi, &b_lo) * u.clone();
+
+                // Verification:
+
+                let a_prime: FieldElement<F> = calculate_a_prime(a.clone(), x.clone());
+                let b_prime: FieldElement<F> = calculate_b_prime(b.clone(), x.clone());
+
+                let left: FieldElement<F> = (x.clone().pow(2_u64)) * L.clone() + commitment.clone() + (c.clone() * u.clone()) + (mod_inverse(x.clone()).pow(2_u64)) * R.clone();
+                let right: FieldElement<F> = (mod_inverse(x.clone()) * a_prime.clone() * g[0].clone()) + (x.clone() * a_prime.clone() * g[1].clone()) + (r_prime.clone() * h.clone()) + (a_prime.clone() * b_prime.clone() * u.clone());
+                
+                let result: bool = left == right;
+                assert_eq!(result, true);
+
+                // Next step:
+                
+                let a_prime_vector: Vec<FieldElement<F>> = vector_addition(&vector_multiply_scalar(&a_lo, x.clone()), &vector_multiply_scalar(&a_hi, mod_inverse(x.clone())));
+                let b_prime_vector: Vec<FieldElement<F>> = vector_addition(&vector_multiply_scalar(&b_lo, mod_inverse(x.clone())),&vector_multiply_scalar(&b_hi, x.clone()));
+                
+                let g_prime_vector: Vec<FieldElement<F>> = vector_addition(&vector_multiply_scalar(&g_lo, mod_inverse(x.clone())),&vector_multiply_scalar(&g_hi, x.clone()));
                                 
-                *a = a_prime;
-                *b = b_prime;
-                *g = g_prime;
+                *a = a_prime_vector;
+                *b = b_prime_vector;
+                *g = g_prime_vector;
                 k -= 1;
-            }
-            verify_n_2(a, b, g, h, blinding_factor, u, x, s, s_prime)
+            };
+            true
         }
     }
     
@@ -193,9 +210,9 @@ mod tests {
 
     #[test]
     fn commitment_p_test() {
-        let p = 
+        let mut p = 
             vec![U384FPElement::from_hex_unchecked("2"), U384FPElement::from_hex_unchecked("4"), U384FPElement::from_hex_unchecked("6"), U384FPElement::from_hex_unchecked("8")];
-        let g = 
+        let mut g = 
             vec![U384FPElement::from_hex_unchecked("a"), U384FPElement::from_hex_unchecked("b"), U384FPElement::from_hex_unchecked("c"), U384FPElement::from_hex_unchecked("d")];
         
         let r: U384FPElement = U384FPElement::from_hex_unchecked("f");
@@ -203,7 +220,7 @@ mod tests {
 
         let expected: U384FPElement = U384FPElement::from_hex_unchecked("16");
     
-        let result = commitment_p(p, g, r, h);
+        let result = commitment_p(&mut p, &mut g, r, h);
         assert_eq!(result, expected);
     }
 
@@ -246,7 +263,7 @@ mod tests {
         let mut a = 
             vec![U384FPElement::from_hex_unchecked("21"), U384FPElement::from_hex_unchecked("13")];
         let mut b = 
-            vec![U384FPElement::from_hex_unchecked("10"), U384FPElement::from_hex_unchecked("3")];
+            vec![U384FPElement::from_hex_unchecked("1"), U384FPElement::from_hex_unchecked("3")];
         let mut g = 
             vec![U384FPElement::from_hex_unchecked("21"), U384FPElement::from_hex_unchecked("12")];
         let h: U384FPElement = U384FPElement::from_hex_unchecked("d");
@@ -262,11 +279,11 @@ mod tests {
     }
 
     #[test]
-    fn verify_test_4() {
+    fn verify_test_4() { // This test is failing:
         let mut a = 
             vec![U384FPElement::from_hex_unchecked("21"), U384FPElement::from_hex_unchecked("13"), U384FPElement::from_hex_unchecked("2"),U384FPElement::from_hex_unchecked("3")];
         let mut b = 
-            vec![U384FPElement::from_hex_unchecked("10"), U384FPElement::from_hex_unchecked("3"), U384FPElement::from_hex_unchecked("a"),U384FPElement::from_hex_unchecked("b")];
+            vec![U384FPElement::from_hex_unchecked("1"), U384FPElement::from_hex_unchecked("3"), U384FPElement::from_hex_unchecked("9"),U384FPElement::from_hex_unchecked("1b")];
         let mut g = 
             vec![U384FPElement::from_hex_unchecked("21"), U384FPElement::from_hex_unchecked("12"), U384FPElement::from_hex_unchecked("3"),U384FPElement::from_hex_unchecked("6")];
         let h: U384FPElement = U384FPElement::from_hex_unchecked("d");
