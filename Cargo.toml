@@ -8,3 +8,6 @@ edition = "2021"
 [dependencies]
 
 lambdaworks-math = { git = "https://github.com/lambdaclass/lambdaworks.git" }
+num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
+rand = { version = "0.8", features = [ "std", "std_rng" ] }
