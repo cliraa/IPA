@@ -1,300 +1,442 @@
+use lambdaworks_math::unsigned_integer::element::UnsignedInteger;
+use lambdaworks_math::field::fields::montgomery_backed_prime_fields::MontgomeryBackendPrimeField;
 use lambdaworks_math::field::element::FieldElement;
+use lambdaworks_math::elliptic_curve::short_weierstrass::curves::bls12_381::field_extension::BLS12381FieldModulus;
+use lambdaworks_math::elliptic_curve::short_weierstrass::curves::bls12_381::field_extension::BLS12381PrimeField;
+use lambdaworks_math::elliptic_curve::short_weierstrass::point::ShortWeierstrassProjectivePoint;
+use lambdaworks_math::elliptic_curve::short_weierstrass::curves::bls12_381::default_types::{FrElement as FE, FrField as FrF};
+use lambdaworks_math::elliptic_curve::traits::IsEllipticCurve;
+use lambdaworks_math::elliptic_curve::short_weierstrass::curves::bls12_381::curve::BLS12381Curve;
+use lambdaworks_math::cyclic_group::IsGroup;
+use num_traits::Num;
+use num_bigint::{BigUint, RandBigInt};
 
-// Given the coefficients of a polynomial p, a vector g, and values r and h, let's produce the commitment [p]:
+type BaseField = BLS12381PrimeField;
 
-fn commitment_p<F: lambdaworks_math::field::traits::IsField>(
-    a: &mut Vec<FieldElement<F>>,
-    g: &mut Vec<FieldElement<F>>,
-    blinding_factor: FieldElement<F>,
-    h: FieldElement<F>) -> FieldElement<F> {
-        let result = inner_product(&a, &g) + (blinding_factor*h);
-        result
-    }
-
-// Open:
-
-// Case n = 2:
-
-fn calculate_l<F: lambdaworks_math::field::traits::IsField>(
-    a: Vec<FieldElement<F>>,
-    b: Vec<FieldElement<F>>,
-    g: Vec<FieldElement<F>>,
-    h: FieldElement<F>,
-    u: FieldElement<F>,
-    s: FieldElement<F>) -> FieldElement<F> {
-        let l: FieldElement<F> = (a[0].clone() * g[1].clone()) + (s.clone() * h.clone()) + (a[0].clone() * b[1].clone() * u.clone());
-        l
+pub fn identity_point<E: lambdaworks_math::elliptic_curve::traits::IsEllipticCurve<BaseField = MontgomeryBackendPrimeField<BLS12381FieldModulus, 6>> + lambdaworks_math::elliptic_curve::short_weierstrass::traits::IsShortWeierstrass>() -> ShortWeierstrassProjectivePoint<E> {
+    let point = ShortWeierstrassProjectivePoint::new([
+        FieldElement::<BaseField>::new_base("0"),
+        FieldElement::<BaseField>::new_base("1"),
+        FieldElement::zero()
+    ]);
+    point
 }
 
-fn calculate_r<F: lambdaworks_math::field::traits::IsField>(
-    a: Vec<FieldElement<F>>,
-    b: Vec<FieldElement<F>>,
-    g: Vec<FieldElement<F>>,
-    h: FieldElement<F>,
-    u: FieldElement<F>,
-    s_prime: FieldElement<F>) -> FieldElement<F> {
-        let r: FieldElement<F> = (a[1].clone() * g[0].clone()) + (s_prime.clone() * h.clone()) + (a[1].clone() * b[0].clone() * u.clone());
-        r
-}
-
-fn calculate_a_prime<F: lambdaworks_math::field::traits::IsField>(
-    a: Vec<FieldElement<F>>,
-    x: FieldElement<F>) -> FieldElement<F> {
-        let a_prime: FieldElement<F> = (a[0].clone() * x.clone()) + (a[1].clone() * mod_inverse(x.clone()));
-        a_prime
-}
-
-fn calculate_b_prime<F: lambdaworks_math::field::traits::IsField>(
-    b: Vec<FieldElement<F>>,
-    x: FieldElement<F>) -> FieldElement<F> {
-        let b_prime: FieldElement<F> = (b[0].clone() * mod_inverse(x.clone())) + (b[1].clone() * x.clone());
-        b_prime
-}
-
-fn calculate_c<F: lambdaworks_math::field::traits::IsField>(
-    a: &mut Vec<FieldElement<F>>,
-    b: &mut Vec<FieldElement<F>>) -> FieldElement<F> {
-        let c: FieldElement<F> = (a[0].clone() * b[0].clone()) + (a[1].clone() * b[1].clone());
-        c
-}
-
-fn verify_n_2<F: lambdaworks_math::field::traits::IsField>(
-    a: &mut Vec<FieldElement<F>>,
-    b: &mut Vec<FieldElement<F>>,
-    g: &mut Vec<FieldElement<F>>,
-    h: FieldElement<F>,
-    blinding_factor: FieldElement<F>,
-    u: FieldElement<F>,
-    x: FieldElement<F>,
-    s: FieldElement<F>,
-    s_prime: FieldElement<F>) -> bool {
-
-        let p: FieldElement<F> = commitment_p(a, g, blinding_factor.clone(), h.clone());
-        let l: FieldElement<F> = calculate_l(a.clone(), b.clone(), g.clone(), h.clone(), u.clone(), s.clone());
-        let r: FieldElement<F> = calculate_r(a.clone(), b.clone(), g.clone(), h.clone(), u.clone(), s_prime.clone());
-        let a_prime: FieldElement<F> = calculate_a_prime(a.clone(), x.clone());
-        let b_prime: FieldElement<F> = calculate_b_prime(b.clone(), x.clone());
-        
-        let c: FieldElement<F> = calculate_c(a, b);
-        let r_prime: FieldElement<F> = (s.clone() * x.pow(2_u64)) + (blinding_factor.clone()) + ((mod_inverse(x.clone()).pow(2_u64)) * s_prime.clone());
-
-        let left: FieldElement<F> = (x.clone().pow(2_u64)) * l.clone() + p.clone() + (c.clone() * u.clone()) + (mod_inverse(x.clone()).pow(2_u64)) * r.clone();
-        let right: FieldElement<F> = (mod_inverse(x.clone()) * a_prime.clone() * g[0].clone()) + (x.clone() * a_prime.clone() * g[1].clone()) + (r_prime.clone() * h) + (a_prime.clone() * b_prime.clone() * u.clone());
-
-        left == right
-}
-
-// General case n = 2^k, where k > 1
-
-fn mod_inverse<F: lambdaworks_math::field::traits::IsField>(a: FieldElement<F>) -> FieldElement<F> {
-    let result: FieldElement<F> = a.inv().unwrap();
-    result
-}
-
-fn inner_product<F: lambdaworks_math::field::traits::IsField>(v1: &[FieldElement<F>], v2: &[FieldElement<F>]) -> FieldElement<F> {
-    if v1.len() != v2.len() {
-        panic!("Vectors must have the same size.");
-    }
-    let result = v1.iter().zip(v2.iter()).map(|(x, y)| x * y).sum::<FieldElement<F>>();
-    result
-}
-
-fn vec_low<F: lambdaworks_math::field::traits::IsField>(vector: &[FieldElement<F>]) -> Vec<FieldElement<F>> {
-    let mid_idx = vector.len() / 2;
-    vector[..mid_idx].to_vec()
-}
-
-fn vec_hi<F: lambdaworks_math::field::traits::IsField>(vector: &[FieldElement<F>]) -> Vec<FieldElement<F>> {
-    let mid_idx = vector.len() / 2;
-    vector[mid_idx..].to_vec()
-}
-
-fn computek<F: lambdaworks_math::field::traits::IsField>(vector: &[FieldElement<F>]) -> u128 {
-    let mut k = 0;
-    let mut length = vector.len();
-    while length != 1 {
-        length /= 2;
-        k += 1;
-    }
-    k
-}
-
-fn vector_multiply_scalar<F: lambdaworks_math::field::traits::IsField>(vector: &[FieldElement<F>], s: FieldElement<F>) -> Vec<FieldElement<F>> {
-    vector.iter().map(|x| x * s.clone()).collect()
-}
-
-fn vector_addition<F: lambdaworks_math::field::traits::IsField>(a: &[FieldElement<F>], b: &[FieldElement<F>]) -> Vec<FieldElement<F>> {
-    if a.len() != b.len() {
-        panic!("Error: Vectors must have the same length");
-    }
-    a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
-}
-
-fn verify<F: lambdaworks_math::field::traits::IsField>( // This function must be fixed
-    a: &mut Vec<FieldElement<F>>,
-    b: &mut Vec<FieldElement<F>>,
-    g: &mut Vec<FieldElement<F>>,
-    h: FieldElement<F>,
-    blinding_factor: FieldElement<F>,
-    u: FieldElement<F>,
-    x: FieldElement<F>,
-    s: FieldElement<F>,
-    s_prime: FieldElement<F>) -> bool {
-        if a.len() == 2 {
-            verify_n_2(a, b, g, h, blinding_factor, u, x, s, s_prime)
-        } else {
-            let mut k = computek(a);
-            while k > 1 {
-                let a_lo: Vec<FieldElement<F>> = vec_low(a);
-                let a_hi: Vec<FieldElement<F>> = vec_hi(a);
-                let b_lo: Vec<FieldElement<F>> = vec_low(b);
-                let b_hi: Vec<FieldElement<F>> = vec_hi(b);
-                let g_lo: Vec<FieldElement<F>> = vec_low(g);
-                let g_hi: Vec<FieldElement<F>> = vec_hi(g);
-
-                let commitment: FieldElement<F> = commitment_p(a, g, blinding_factor.clone(), h.clone());
-                let c: FieldElement<F> = inner_product(a,b);
-                let r_prime: FieldElement<F> = (s.clone() * x.pow(2_u64)) + (blinding_factor.clone()) + ((mod_inverse(x.clone()).pow(2_u64)) * s_prime.clone());
-                
-                let L: FieldElement<F> = inner_product(&a_lo, &g_hi) + (s.clone() * h.clone()) + inner_product(&a_lo, &b_hi) * u.clone();
-                let R: FieldElement<F> = inner_product(&a_hi, &g_lo) + (s_prime.clone() * h.clone()) + inner_product(&a_hi, &b_lo) * u.clone();
-
-                // Verification:
-
-                let a_prime: FieldElement<F> = calculate_a_prime(a.clone(), x.clone());
-                let b_prime: FieldElement<F> = calculate_b_prime(b.clone(), x.clone());
-
-                let left: FieldElement<F> = (x.clone().pow(2_u64)) * L.clone() + commitment.clone() + (c.clone() * u.clone()) + (mod_inverse(x.clone()).pow(2_u64)) * R.clone();
-                let right: FieldElement<F> = (mod_inverse(x.clone()) * a_prime.clone() * g[0].clone()) + (x.clone() * a_prime.clone() * g[1].clone()) + (r_prime.clone() * h.clone()) + (a_prime.clone() * b_prime.clone() * u.clone());
-                
-                let result: bool = left == right;
-                assert_eq!(result, true);
-
-                // Next step:
-                
-                let a_prime_vector: Vec<FieldElement<F>> = vector_addition(&vector_multiply_scalar(&a_lo, x.clone()), &vector_multiply_scalar(&a_hi, mod_inverse(x.clone())));
-                let b_prime_vector: Vec<FieldElement<F>> = vector_addition(&vector_multiply_scalar(&b_lo, mod_inverse(x.clone())),&vector_multiply_scalar(&b_hi, x.clone()));
-                
-                let g_prime_vector: Vec<FieldElement<F>> = vector_addition(&vector_multiply_scalar(&g_lo, mod_inverse(x.clone())),&vector_multiply_scalar(&g_hi, x.clone()));
-                                
-                *a = a_prime_vector;
-                *b = b_prime_vector;
-                *g = g_prime_vector;
-                k -= 1;
-            };
-            true
+pub fn generate_random_element() -> FrElement {
+    let max_value_str = "15959789999986673934177898257359041565568828199390078853320581361240316504908"; // Fix this value!
+    let max_value = BigUint::from_str_radix(max_value_str, 10).unwrap();
+    let mut rng = rand::thread_rng();
+    let max_bits = max_value.bits();
+    let mut random_biguint;
+    loop {        
+        random_biguint = rng.gen_biguint(max_bits);
+        if random_biguint <= max_value {
+            break;
         }
     }
+    let element: FrElement = FrElement::new(UnsignedInteger::from_hex_unchecked(
+        &random_biguint.to_str_radix(16),
+    ));
+    element
+}
+
+pub fn generate_random_point<E: lambdaworks_math::elliptic_curve::traits::IsEllipticCurve>() -> ShortWeierstrassProjectivePoint<BLS12381Curve> {
+    let _g_1: ShortWeierstrassProjectivePoint<BLS12381Curve> = BLS12381Curve::generator();
+    let point = _g_1.operate_with_self(generate_random_element().representative());
+    point
+}
+
+#[allow(non_snake_case)]
+pub struct IPA<BLS12381Curve: lambdaworks_math::elliptic_curve::traits::IsEllipticCurve> {
+    d: u32,
+    H: ShortWeierstrassProjectivePoint<BLS12381Curve>,
+    Gs: Vec<ShortWeierstrassProjectivePoint<BLS12381Curve>>,    
+}
+
+pub type FrElement = FE;
+pub type FrField = FrF;
+
+#[allow(non_snake_case)]
+pub struct Proof<BLS12381Curve: lambdaworks_math::elliptic_curve::traits::IsEllipticCurve> {
+    a: FrElement,
+    l: Vec<FrElement>,
+    r: Vec<FrElement>,
+    L: Vec<ShortWeierstrassProjectivePoint<BLS12381Curve>>,
+    R: Vec<ShortWeierstrassProjectivePoint<BLS12381Curve>>,
+}
+
+#[allow(non_snake_case)]
+#[allow(clippy::many_single_char_names)]
+impl IPA<BLS12381Curve> {
     
+    pub fn new(d: u32) -> IPA<BLS12381Curve> {        
+        
+        let mut gs: Vec<ShortWeierstrassProjectivePoint<BLS12381Curve>> = Vec::new();
+        for _ in 0..d {            
+            gs.push(generate_random_point::<BLS12381Curve>());
+        }
+
+        IPA {
+            d,            
+            H: generate_random_point::<BLS12381Curve>(),
+            Gs: gs,            
+        }
+    }
+
+    pub fn commit<E: lambdaworks_math::elliptic_curve::traits::IsEllipticCurve>(
+        &self,
+        a: &[FrElement],
+        r: FrElement,
+    ) -> Result<ShortWeierstrassProjectivePoint<BLS12381Curve>, String> {
+        Ok((inner_product_point::<E>(a, &self.Gs)?).operate_with(
+            &(self.H.operate_with_self(r.representative())),
+        ))
+    }
+
+    pub fn prove(
+        &mut self,
+        a: &[FrElement],
+        b: &[FrElement],
+        u: &[FrElement],
+        U: &ShortWeierstrassProjectivePoint<BLS12381Curve>,
+    ) -> Result<Proof<BLS12381Curve>, String> {
+        let mut a = a.to_owned();
+        let mut b = b.to_owned();
+        let mut G = self.Gs.clone();
+
+        let k = (f64::from(self.d as u32).log2()) as usize;
+        let mut l: Vec<FrElement> = vec![FrElement::zero(); k];
+        let mut r: Vec<FrElement> = vec![FrElement::zero(); k];
+        let mut L: Vec<ShortWeierstrassProjectivePoint<BLS12381Curve>> = vec![identity_point(); k];
+        let mut R: Vec<ShortWeierstrassProjectivePoint<BLS12381Curve>> = vec![identity_point(); k];
+
+        for j in (0..k).rev() {
+            let m = a.len() / 2;
+            let a_lo = a[..m].to_vec();
+            let a_hi = a[m..].to_vec();
+            let b_lo = b[..m].to_vec();
+            let b_hi = b[m..].to_vec();
+            let G_lo = G[..m].to_vec();
+            let G_hi = G[m..].to_vec();
+
+            l[j] = generate_random_element();
+            r[j] = generate_random_element();
+
+            L[j] = ((inner_product_point::<BLS12381Curve>(&a_lo, &G_hi)?).operate_with(&(self.H.operate_with_self(l[j].representative())))).operate_with(&(U.operate_with_self(inner_product_field(&a_lo, &b_hi)?.representative())));
+            R[j] = ((inner_product_point::<BLS12381Curve>(&a_hi, &G_lo)?).operate_with(&(self.H.operate_with_self(r[j].representative())))).operate_with(&(U.operate_with_self(inner_product_field(&a_hi, &b_lo)?.representative())));
+
+            let uj = &u[j];
+            let uj_inv = u[j].inv().unwrap();
+
+            a = vec_add(
+                &vec_scalar_mul_field(&a_lo, &uj),
+                &vec_scalar_mul_field(&a_hi, &uj_inv),
+            )?;
+            b = vec_add(
+                &vec_scalar_mul_field(&b_lo, &uj_inv),
+                &vec_scalar_mul_field(&b_hi, &uj),
+            )?;            
+            G = vec_add_point::<BLS12381Curve>(                
+                &vec_scalar_mul_point::<BLS12381Curve>(&G_lo, &uj_inv),
+                &vec_scalar_mul_point::<BLS12381Curve>(&G_hi, &uj),
+            )?;
+        }
+
+        if a.len() != 1 {
+            return Err(format!("a.len() should be 1, a.len()={}", a.len()));
+        }
+        if b.len() != 1 {
+            return Err(format!("b.len() should be 1, b.len()={}", b.len()));
+        }
+        if G.len() != 1 {
+            return Err(format!("G.len() should be 1, G.len()={}", G.len()));
+        }
+
+        Ok(Proof {
+            a: a[0].clone(),
+            l,
+            r,
+            L,
+            R,
+        })
+    } 
+
+    pub fn verify(
+        &self,
+        x: &FrElement,
+        v: &FrElement,
+        P: &ShortWeierstrassProjectivePoint<BLS12381Curve>,
+        p: &Proof<BLS12381Curve>,
+        r: &FrElement,
+        u: &[FrElement],
+        U: &ShortWeierstrassProjectivePoint<BLS12381Curve>,
+    ) -> Result<bool, String> {
+        let P = (*P).operate_with(&(U.operate_with_self(v.representative())));
+    
+        let mut q_0 = P;
+        let mut r = r.clone();
+    
+        let s = build_s(u, self.d as usize);
+        let bs = powers_of(x, self.d.try_into().unwrap());
+        let b = inner_product_field(&s, &bs)?;
+        let G = inner_product_point::<BLS12381Curve>(&s, &self.Gs)?;
+    
+        for j in 0..u.len() {
+            let uj2 = u[j].square();
+            let uj_inv2 = u[j].inv().unwrap().square();
+    
+            q_0 = (q_0).operate_with(&(p.L[j].operate_with_self(uj2.representative()))).operate_with(&(p.R[j].operate_with_self(uj_inv2.representative())));
+            r = r + p.l[j].clone() * uj2 + p.r[j].clone() * uj_inv2;
+        }
+    
+        let q_1 = (G.operate_with_self(p.a.clone().representative())).operate_with(&(self.H.operate_with_self((r).representative()))).operate_with(&(U.operate_with_self((&p.a * b).representative())));
+        Ok(q_0 == q_1)
+    }
+
+}
+
+fn build_s(u: &[FrElement], d: usize) -> Vec<FrElement> {
+    let k = (f64::from(d as u32).log2()) as usize;
+    let mut s: Vec<FrElement> = vec![FrElement::one(); d];
+    let mut t = d;
+    for j in (0..k).rev() {
+        t /= 2;
+        let mut c = 0;
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..d {
+            if c < t {                
+                s[i] = s[i].clone() * u[j].clone().inv().unwrap();
+            } else {                
+                s[i] = s[i].clone() * u[j].clone();
+            }
+            c += 1;
+            if c >= t * 2 {
+                c = 0;
+            }
+        }
+    }
+    s
+}
+
+fn inner_product_field(a: &[FrElement], b: &[FrElement]) -> Result<FrElement, String> {
+    if a.len() != b.len() {
+        return Err(format!(
+            "a.len()={} must be equal to b.len()={}",
+            a.len(),
+            b.len()
+        ));
+    }
+    let mut c: FrElement = FrElement::zero();
+    for i in 0..a.len() {
+        c += a[i].clone() * b[i].clone();
+    }
+    Ok(c)
+}
+
+fn inner_product_point<E: lambdaworks_math::elliptic_curve::traits::IsEllipticCurve>(a: &[FrElement], b: &[ShortWeierstrassProjectivePoint<BLS12381Curve>]) -> Result<ShortWeierstrassProjectivePoint<BLS12381Curve>, String> {
+    if a.len() != b.len() {
+        return Err(format!(
+            "a.len()={} must be equal to b.len()={}",
+            a.len(),
+            b.len()
+        ));
+    }
+    
+    let mut c: ShortWeierstrassProjectivePoint<BLS12381Curve> = identity_point();
+    for i in 0..a.len() {        
+        let d = b[i].operate_with_self(a[i].representative());
+        c = c.operate_with(&d);
+    }
+    Ok(c)
+}
+
+fn vec_add(a: &[FrElement], b: &[FrElement]) -> Result<Vec<FrElement>, String> {
+    if a.len() != b.len() {
+        return Err(format!(
+            "a.len()={} must be equal to b.len()={}",
+            a.len(),
+            b.len()
+        ));
+    }
+    let mut c: Vec<FrElement> = vec![FrElement::zero(); a.len()];
+    for i in 0..a.len() {
+        c[i] = a[i].clone() + b[i].clone();
+    }
+    Ok(c)
+}
+fn vec_add_point<E: lambdaworks_math::elliptic_curve::traits::IsEllipticCurve>(
+    a: &[ShortWeierstrassProjectivePoint<BLS12381Curve>],
+    b: &[ShortWeierstrassProjectivePoint<BLS12381Curve>],
+) -> Result<Vec<ShortWeierstrassProjectivePoint<BLS12381Curve>>, String> {
+    if a.len() != b.len() {
+        return Err(format!(
+            "a.len()={} must be equal to b.len()={}",
+            a.len(),
+            b.len()
+        ));
+    }
+    let mut c: Vec<ShortWeierstrassProjectivePoint<BLS12381Curve>> = vec![identity_point(); a.len()];
+    for i in 0..a.len() {        
+        c[i] = a[i].operate_with(&b[i]);
+    }
+    Ok(c)
+}
+
+fn vec_scalar_mul_field(a: &[FrElement], b: &FrElement) -> Vec<FrElement> {
+    let mut c: Vec<FrElement> = vec![FrElement::zero(); a.len()];
+    for i in 0..a.len() {
+        c[i] = a[i].clone() * b;
+    }
+    c
+}
+fn vec_scalar_mul_point<E: lambdaworks_math::elliptic_curve::traits::IsEllipticCurve>(a: &[ShortWeierstrassProjectivePoint<BLS12381Curve>], b: &FrElement) -> Vec<ShortWeierstrassProjectivePoint<BLS12381Curve>> {
+    let mut c: Vec<ShortWeierstrassProjectivePoint<BLS12381Curve>> = vec![identity_point(); a.len()];
+    for i in 0..a.len() {
+        c[i] = a[i].operate_with_self(b.representative());
+    }
+    c
+}
+
+fn powers_of(x: &FrElement, d: usize) -> Vec<FrElement> {
+    let mut c: Vec<FrElement> = vec![FrElement::zero(); d as usize];
+    c[0] = x.clone();
+    for i in 1..d as usize {
+        c[i] = c[i - 1].clone() * x.clone();
+    }
+    c
+}
+
 #[cfg(test)]
+#[allow(non_snake_case)]
 mod tests {
-
-    use crate::commitment_p;
-    use crate::verify_n_2;
-    use crate::verify;
-    
-    use lambdaworks_math::unsigned_integer::element::U384;
-    use lambdaworks_math::field::{
-        element::FieldElement,
-        fields::montgomery_backed_prime_fields::{IsModulus, U384PrimeField}};
-
-    #[derive(Clone, Debug)]
-    pub struct U384ModulusP;
-
-    impl IsModulus<U384> for U384ModulusP {
-        const MODULUS: U384 = U384::from_hex_unchecked("6b");
-    }
-
-    type U384FP = U384PrimeField<U384ModulusP>;
-    type U384FPElement = FieldElement<U384FP>;
+    use super::*;
 
     #[test]
-    fn commitment_p_test() {
-        let mut p = 
-            vec![U384FPElement::from_hex_unchecked("2"), U384FPElement::from_hex_unchecked("4"), U384FPElement::from_hex_unchecked("6"), U384FPElement::from_hex_unchecked("8")];
-        let mut g = 
-            vec![U384FPElement::from_hex_unchecked("a"), U384FPElement::from_hex_unchecked("b"), U384FPElement::from_hex_unchecked("c"), U384FPElement::from_hex_unchecked("d")];
-        
-        let r: U384FPElement = U384FPElement::from_hex_unchecked("f");
-        let h: U384FPElement = U384FPElement::from_hex_unchecked("e");
+    fn identity_point_function_works() {
+        let gen: ShortWeierstrassProjectivePoint<BLS12381Curve> = BLS12381Curve::generator();
 
-        let expected: U384FPElement = U384FPElement::from_hex_unchecked("16");
-    
-        let result = commitment_p(&mut p, &mut g, r, h);
-        assert_eq!(result, expected);
+        let G_5 = gen.operate_with_self(5_u64);
+        let G_7 = gen.operate_with_self(7_u64);
+        let G_9 = gen.operate_with_self(9_u64);
+
+        let adding_G_5_with_identity_point = G_5.operate_with(&identity_point());
+        let adding_G_7_with_identity_point = G_7.operate_with(&identity_point());
+        let adding_G_9_with_identity_point = G_9.operate_with(&identity_point());
+
+        assert_eq!(G_5, adding_G_5_with_identity_point);
+        assert_eq!(G_7, adding_G_7_with_identity_point);
+        assert_eq!(G_9, adding_G_9_with_identity_point);
     }
 
     #[test]
-    fn verify_n_2_test_1() {
-        let mut a = vec![U384FPElement::from_hex_unchecked("2"), U384FPElement::from_hex_unchecked("3")];
-        let mut b = vec![U384FPElement::from_hex_unchecked("1"), U384FPElement::from_hex_unchecked("6")];
-        let mut g = vec![U384FPElement::from_hex_unchecked("5"), U384FPElement::from_hex_unchecked("7")];
-        let h: U384FPElement = U384FPElement::from_hex_unchecked("9");
-        let bf: U384FPElement = U384FPElement::from_hex_unchecked("11");
-        let u: U384FPElement = U384FPElement::from_hex_unchecked("5");
-
-        let x: U384FPElement = U384FPElement::from_hex_unchecked("6");
-        let s: U384FPElement = U384FPElement::from_hex_unchecked("7");
-        let s_prime: U384FPElement = U384FPElement::from_hex_unchecked("8");
-    
-        let result: bool = verify_n_2(&mut a, &mut b, &mut g, h, bf, u, x, s, s_prime);
-        assert_eq!(result, true);
+    fn inner_product_field_works() {
+        let a = vec![
+            FrElement::from(1 as u64),
+            FrElement::from(2 as u64),
+            FrElement::from(3 as u64),
+            FrElement::from(4 as u64),
+        ];
+        let b = vec![
+            FrElement::from(1 as u64),
+            FrElement::from(2 as u64),
+            FrElement::from(3 as u64),
+            FrElement::from(4 as u64),
+        ];
+        let c = inner_product_field(&a, &b).unwrap();
+        assert_eq!(c, FrElement::from(30 as u64));
     }
 
     #[test]
-    fn verify_n_2_test_2() {
-        let mut a = vec![U384FPElement::from_hex_unchecked("21"), U384FPElement::from_hex_unchecked("13")];
-        let mut b = vec![U384FPElement::from_hex_unchecked("1"), U384FPElement::from_hex_unchecked("24")];
-        let mut g = vec![U384FPElement::from_hex_unchecked("10"), U384FPElement::from_hex_unchecked("17")];
-        let h: U384FPElement = U384FPElement::from_hex_unchecked("15");
-        let bf: U384FPElement = U384FPElement::from_hex_unchecked("7");
-        let u: U384FPElement = U384FPElement::from_hex_unchecked("9");
+    fn inner_product_point_works() {
+        let gen: ShortWeierstrassProjectivePoint<BLS12381Curve> = BLS12381Curve::generator();
 
-        let x: U384FPElement = U384FPElement::from_hex_unchecked("3");
-        let s: U384FPElement = U384FPElement::from_hex_unchecked("6");
-        let s_prime: U384FPElement = U384FPElement::from_hex_unchecked("2");
-    
-        let result: bool = verify_n_2(&mut a, &mut b, &mut g, h, bf, u, x, s, s_prime);
-        assert_eq!(result, true);
+        let a = vec![
+            FrElement::from(1 as u64),
+            FrElement::from(2 as u64),
+            FrElement::from(3 as u64),
+            FrElement::from(4 as u64),
+        ];
+
+        let b = vec![
+            gen.operate_with_self(5_u64),
+            gen.operate_with_self(6_u64),
+            gen.operate_with_self(7_u64),
+            gen.operate_with_self(8_u64),
+        ];
+
+        let c = inner_product_point::<BLS12381Curve>(&a, &b).unwrap();
+        let c_expected = 
+            (((b[0].operate_with_self(a[0].representative())).operate_with(&(b[1].operate_with_self(a[1].representative())))).operate_with(&(b[2].operate_with_self(a[2].representative())))).operate_with(&(b[3].operate_with_self(a[3].representative())));
+
+        assert_eq!(c, c_expected);
     }
 
     #[test]
-    fn verify_test_3() {
-        let mut a = 
-            vec![U384FPElement::from_hex_unchecked("21"), U384FPElement::from_hex_unchecked("13")];
-        let mut b = 
-            vec![U384FPElement::from_hex_unchecked("1"), U384FPElement::from_hex_unchecked("3")];
-        let mut g = 
-            vec![U384FPElement::from_hex_unchecked("21"), U384FPElement::from_hex_unchecked("12")];
-        let h: U384FPElement = U384FPElement::from_hex_unchecked("d");
-        let bf: U384FPElement = U384FPElement::from_hex_unchecked("17");
-        
-        let u: U384FPElement = U384FPElement::from_hex_unchecked("f");
-        let s: U384FPElement = U384FPElement::from_hex_unchecked("e");
-        let s_prime: U384FPElement = U384FPElement::from_hex_unchecked("c");
-        let x: U384FPElement = U384FPElement::from_hex_unchecked("d");
-    
-        let result = verify(&mut a, &mut b, &mut g, h, bf, u, x, s, s_prime);
-        assert_eq!(result, true);
+    fn test_homomorphic_property() {
+        let d = 8;
+        let ipa = IPA::new(d);
+
+        let a = vec![
+            FrElement::from(1 as u64),
+            FrElement::from(2 as u64),
+            FrElement::from(3 as u64),
+            FrElement::from(4 as u64),
+            FrElement::from(5 as u64),
+            FrElement::from(6 as u64),
+            FrElement::from(7 as u64),
+            FrElement::from(8 as u64),
+        ];
+        let b = a.clone();
+
+        let r = generate_random_element();
+        let s = generate_random_element();
+
+        let vc_a = ipa.commit::<BLS12381Curve>(&a, r.clone()).unwrap();
+        let vc_b = ipa.commit::<BLS12381Curve>(&b, s.clone()).unwrap();
+
+        let expected_vc_c = ipa.commit::<BLS12381Curve>(&vec_add(&a, &b).unwrap(), r + s).unwrap();
+        let vc_c = vc_a.operate_with(&vc_b);
+        assert_eq!(vc_c, expected_vc_c);
+    }
+  
+    #[test]
+    fn test_inner_product_argument_proof() {
+        let d = 8;
+        let mut ipa = IPA::new(d);
+
+        let a = vec![
+            FrElement::from(1 as u64),
+            FrElement::from(2 as u64),
+            FrElement::from(3 as u64),
+            FrElement::from(4 as u64),
+            FrElement::from(5 as u64),
+            FrElement::from(6 as u64),
+            FrElement::from(7 as u64),
+            FrElement::from(8 as u64),
+        ];
+
+        let r = generate_random_element();
+
+        // Prover commits
+        let P = ipa.commit::<BLS12381Curve>(&a, r.clone()).unwrap();
+
+        // Verifier sets challenges
+        let U = generate_random_point::<BLS12381Curve>();
+        let k = (f64::from(ipa.d as u32).log2()) as usize;
+        let mut u: Vec<FrElement> = vec![FrElement::zero(); k];
+        for j in 0..k {
+            u[j] = generate_random_element();
+        }
+        let x = FrElement::from(3 as u64);
+
+        // Prover opens at the challenges
+        let b = powers_of(&x.clone(), ipa.d.try_into().unwrap());
+        let v = inner_product_field(&a, &b).unwrap();
+        let proof = ipa.prove(&a, &b, &u, &U).unwrap();
+
+        // Verifier
+        let verif = ipa.verify(&x, &v, &P, &proof, &r, &u, &U).unwrap();
+        assert!(verif);
     }
 
-    #[test]
-    fn verify_test_4() { // This test is failing:
-        let mut a = 
-            vec![U384FPElement::from_hex_unchecked("21"), U384FPElement::from_hex_unchecked("13"), U384FPElement::from_hex_unchecked("2"),U384FPElement::from_hex_unchecked("3")];
-        let mut b = 
-            vec![U384FPElement::from_hex_unchecked("1"), U384FPElement::from_hex_unchecked("3"), U384FPElement::from_hex_unchecked("9"),U384FPElement::from_hex_unchecked("1b")];
-        let mut g = 
-            vec![U384FPElement::from_hex_unchecked("21"), U384FPElement::from_hex_unchecked("12"), U384FPElement::from_hex_unchecked("3"),U384FPElement::from_hex_unchecked("6")];
-        let h: U384FPElement = U384FPElement::from_hex_unchecked("d");
-        let bf: U384FPElement = U384FPElement::from_hex_unchecked("17");
-        
-        let u: U384FPElement = U384FPElement::from_hex_unchecked("f");
-        let s: U384FPElement = U384FPElement::from_hex_unchecked("e");
-        let s_prime: U384FPElement = U384FPElement::from_hex_unchecked("c");
-        let x: U384FPElement = U384FPElement::from_hex_unchecked("d");
-    
-        let result = verify(&mut a, &mut b, &mut g, h, bf, u, x, s, s_prime);
-        assert_eq!(result, true);
-    }
 }
